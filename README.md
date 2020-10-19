@@ -24,7 +24,7 @@ Here are two screenshots of using this program. Note that responses are not prin
 ![](google.png)
 
 ## Comparison
-[www.example.com](www.example.com)
+[www.example.com](http://www.example.com)
 ```
 Sending 5 request(s):
 GET / HTTP/1.1
@@ -47,7 +47,7 @@ Response size:
 	Max: 1591 bytes
 ```
 
-[web.mit.edu](web.mit.edu)
+[web.mit.edu](http://web.mit.edu)
 ```
 Sending 5 request(s):
 GET / HTTP/1.1
@@ -70,7 +70,7 @@ Response size:
 	Max: 35477 bytes
 ```
 
-[www.google.com](www.google.com)
+[www.google.com](http://www.google.com)
 ```
 Sending 5 request(s):
 GET / HTTP/1.1
@@ -93,7 +93,7 @@ Response size:
 	Max: 48548 bytes
 ```
 
-[cloudflare-2020-general.c0deb0t.workers.dev](cloudflare-2020-general.c0deb0t.workers.dev)
+[cloudflare-2020-general.c0deb0t.workers.dev](http://cloudflare-2020-general.c0deb0t.workers.dev)
 ```
 Sending 5 request(s):
 GET / HTTP/1.1
@@ -122,21 +122,24 @@ Note that these are all HTTP requests, as HTTPS support is not implemented in th
 automatically redirect to use HTTPS.
 
 The response sizes for different websites differ by quite a bit, so we have to take that into account when
-comparing performance. Here are some observations
+comparing performance. Here are some observations:
 
 * My Cloudflare workers site takes a similar amount of time as Google (around 100-110 ms), but Google returns a
 much larger response, so Cloudflare workers is slower than accessing Google for the same size response.
 
-* MIT's website is fast! It returns a sizeable response, which is much larger than the response from my
-Cloudflare workers, but still takes a very short amount of time (around 32 ms).
+* MIT's website is fast! It returns a sizeable response (almost the size of Google's response), which
+is much larger than the response from my Cloudflare workers, but still takes a very short amount of time (around 32 ms).
 
 * `example.com` returns a response size around 2-3 times smaller than my Cloudflare workers site, and it
 takes around 3 times less time, so it is similar in speed to Cloudflare workers.
 
 ### Fetching an HTML site
 
-It is also possible to stitch together HTML from multiple chunks of responses.
-
+It is also possible to stitch together HTML from multiple chunks of responses. For example, running
+```
+cargo run -- --url cloudflare-2020-general.c0deb0t.workers.dev
+```
+gives the following output:
 ```
 Sending 1 request(s):
 GET / HTTP/1.1
