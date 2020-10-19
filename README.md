@@ -118,11 +118,12 @@ Response size:
 
 ### Analysis
 
-Note that these are all HTTP requests, as HTTPS support is not implemented in this program, and many websites
-automatically redirect to use HTTPS.
+Note that these are all HTTP requests, as HTTPS support is not implemented in this program. Many websites
+automatically redirect to use HTTPS, so they will give a `301 Moved Permanently` response.
 
 The response sizes for different websites differ by quite a bit, so we have to take that into account when
-comparing performance. Here are some observations:
+comparing performance. Additionally, these numbers fluctuate quite a bit between different runs, so any
+comparison should be taken with a grain of salt. Here are some observations:
 
 * My Cloudflare workers site takes a similar amount of time as Google (around 100-110 ms), but Google returns a
 much larger response, so Cloudflare workers is slower than accessing Google for the same size response.
@@ -135,11 +136,13 @@ takes around 3 times less time, so it is similar in speed to Cloudflare workers.
 
 ### Fetching an HTML site
 
-It is also possible to stitch together HTML from multiple chunks of responses. For example, running
+It is also possible to stitch together HTML from multiple chunks of responses. This is necessary when the `Transfer-Encoding`
+is chunked. Each chunk starts with a number indicating the length of the chunk. Without this, it is difficult to know where
+a response ends, so this is helpful when fetching a large site. For example, running
 ```
 cargo run -- --url cloudflare-2020-general.c0deb0t.workers.dev
 ```
-gives the following output:
+gives the following response from my Cloudflare workers site:
 ```
 Sending 1 request(s):
 GET / HTTP/1.1

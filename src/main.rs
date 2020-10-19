@@ -22,6 +22,7 @@ fn main() {
         panic!("Profile count needs to be greater than 0!");
     }
 
+    // TcpStream will automatically resolve the hostname to an IP address, if necessary
     let mut stream = TcpStream::connect(&host).unwrap();
 
     // use HTTP/1.1 so we can directly send a plain text request
@@ -29,6 +30,7 @@ fn main() {
 
     print!("Sending {} request(s):\n{}", profile, http_request);
 
+    // note that buffered reader will keep the trailing newline in the result returned by read_line
     let mut reader = BufReader::new(stream.try_clone().unwrap());
 
     let mut stat_times = vec![];
@@ -36,93 +38,10 @@ fn main() {
     let mut stat_succeeded = 0usize;
 
     for _i in 0..profile {
-        let start_time = Instant::now();
-        stream.write(&http_request.as_bytes()).unwrap();
-
-        // parse header and extract important information
-        // also print out the header if not profiling
-
-        let mut content_length: Option<usize> = None;
-        let mut chunked = false;
-        let mut header_start = false;
-        let mut size = 0usize;
-
-        loop {
-            let mut line = String::new();
-            reader.read_line(&mut line).unwrap();
-            size += line.len();
-
-            if let Some(code) = line.strip_prefix("HTTP/1.1") {
-                header_start = true;
-                let status = code.trim();
-                let elapsed = start_time.elapsed().as_millis();
-
-                if is_profiling {
-                    println!("Received response (in {} ms): {}", elapsed, status);
-                } else {
-                    println!("Received response (in {} ms):", elapsed);
-                }
-
-                if status.starts_with("2") {
-                    stat_succeeded += 1;
-                }
-
-                stat_times.push(elapsed);
-            } else if let Some(len) = line.strip_prefix("Content-Length:") {
-                content_length = Some(len.trim().parse::<usize>().unwrap());
-            } else if line.starts_with("Transfer-Encoding: chunked") {
-                chunked = true;
-            } else if header_start && line == "\r\n" {
-                break;
-            }
-
-            if !is_profiling {
-                print!("{}", line);
-            }
-        }
-
-        if !is_profiling {
-            println!();
-        }
-
-        // read in the body and display it
-        // print out body if not profiling
-        if let Some(len) = content_length {
-            // easy case: known content length
-            let mut content = vec![0u8; len];
-            reader.read_exact(&mut content).unwrap();
-
-            if !is_profiling {
-                println!("{}", decode_bytes(&content));
-            }
-
-            size += content.len();
-        } else if chunked {
-            // hard case: read in chunks and merge the chunks together
-            let mut content = Vec::with_capacity(1024);
-
-            loop {
-                let mut len_line = String::new();
-                reader.read_line(&mut len_line).unwrap();
-                size += len_line.len();
-                let chunk_len = usize::from_str_radix(&len_line.trim(), 16).unwrap();
-                // add two bytes to include the CR and LF bytes
-                let mut buf = vec![0u8; chunk_len + 2];
-                reader.read_exact(&mut buf).unwrap();
-                content.extend_from_slice(&buf[..buf.len() - 2]);
-                size += buf.len();
-
-                if chunk_len == 0 {
-                    break;
-                }
-            }
-
-            if !is_profiling {
-                println!("{}", decode_bytes(&content));
-            }
-        }
-
+        let (time, size, succeeded) = parse_response(is_profiling, &mut reader, &mut stream, &http_request);
+        stat_times.push(time);
         stat_sizes.push(size);
+        stat_succeeded += if succeeded { 1 } else { 0 };
     }
 
     // output final statistics when profiling
@@ -139,6 +58,109 @@ fn main() {
     }
 }
 
+fn parse_response(is_profiling: bool,
+                  reader: &mut BufReader<TcpStream>,
+                  stream: &mut TcpStream,
+                  http_request: &str) -> (u128, usize, bool) {
+    // first, write out the request
+    let start_time = Instant::now();
+    stream.write(http_request.as_bytes()).unwrap();
+
+    let mut content_length: Option<usize> = None;
+    let mut chunked = false;
+    let mut header_start = false;
+
+    let mut time = 0u128;
+    let mut size = 0usize;
+    let mut succeeded = false;
+
+    // then, parse for the header with a rudimentary parser
+    // note: the main goal is to extract length information
+    // so we know how many bytes to read in
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        size += line.len();
+
+        if let Some(code) = line.strip_prefix("HTTP/1.1") {
+            header_start = true;
+            let status = code.trim();
+            // timing ends when header is received
+            time = start_time.elapsed().as_millis();
+
+            if is_profiling {
+                println!("Received response (in {} ms): {}", time, status);
+            } else {
+                println!("Received response (in {} ms):", time);
+            }
+
+            // 200 - 299 are successful response codes
+            succeeded = status.starts_with("2");
+        } else if let Some(len) = line.strip_prefix("Content-Length:") {
+            // if content length is known, then it is easy to read in the body
+            content_length = Some(len.trim().parse::<usize>().unwrap());
+        } else if line.starts_with("Transfer-Encoding: chunked") {
+            // if the body is chunked, then we need to parse each chunk
+            chunked = true;
+        } else if header_start && line == "\r\n" {
+            // this case is for the empty line at the end of the header
+            break;
+        }
+
+        if !is_profiling {
+            print!("{}", line);
+        }
+    }
+
+    if !is_profiling {
+        println!();
+    }
+
+    // finally, parse the body of the response
+    if let Some(len) = content_length {
+        // easy case: known content length
+        let mut content = vec![0u8; len];
+        reader.read_exact(&mut content).unwrap();
+
+        if !is_profiling {
+            println!("{}", decode_bytes(&content));
+        }
+
+        size += content.len();
+    } else if chunked {
+        // hard case: read in chunks and merge the chunks together
+        let mut content = Vec::with_capacity(1024);
+
+        loop {
+            let mut len_line = String::new();
+            reader.read_line(&mut len_line).unwrap();
+            size += len_line.len();
+
+            // first line is a number indicating the length of the chunk
+            let chunk_len = usize::from_str_radix(&len_line.trim(), 16).unwrap();
+
+            // add two bytes to include the CR and LF bytes
+            let mut buf = vec![0u8; chunk_len + 2];
+            reader.read_exact(&mut buf).unwrap();
+
+            // ensure that the extra trailing newlines are omitted and concatenate the chunks
+            content.extend_from_slice(&buf[..buf.len() - 2]);
+            size += buf.len();
+
+            // only the last chunk has a length of 0
+            if chunk_len == 0 {
+                break;
+            }
+        }
+
+        if !is_profiling {
+            println!("{}", decode_bytes(&content));
+        }
+    }
+
+    (time, size, succeeded)
+}
+
 fn median(a: &[u128]) -> f64 {
     let mut a = a.to_owned();
     a.sort();
@@ -151,6 +173,7 @@ fn median(a: &[u128]) -> f64 {
 }
 
 // try decoding using UTF-8, and if that does not work, then try Latin-1
+// Latin-1 shares many similar characters to UTF-8, so casting is fine
 fn decode_bytes(content: &[u8]) -> String {
     match String::from_utf8(content.to_owned()) {
         Ok(s) => s,
@@ -221,5 +244,8 @@ mod tests {
 
         let e = parse_url("https://www.example.com:1234/hi/hello");
         assert_eq!(e, ("www.example.com:1234".to_owned(), "/hi/hello".to_owned()));
+
+        let f = parse_url("127.0.0.1:1234/hi/hello");
+        assert_eq!(f, ("127.0.0.1:1234".to_owned(), "/hi/hello".to_owned()));
     }
 }
