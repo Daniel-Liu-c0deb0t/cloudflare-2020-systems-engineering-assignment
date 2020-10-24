@@ -11,6 +11,9 @@ or
 ```
 cargo run -- --url https://cloudflare-2020-general.c0deb0t.workers.dev/links --profile 5
 ```
+Use `--help` to see the help message. Note that it might be a good idea to set a high `--delay` (default: 100 ms), so the
+server is not overloaded with GET requests when the profile count is high.
+
 To run the unit tests, use
 ```
 cargo test

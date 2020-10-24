@@ -1,6 +1,7 @@
 use std::net::TcpStream;
 use std::io::{BufRead, Read, Write, BufReader};
-use std::time::Instant;
+use std::time::{Instant, Duration};
+use std::thread;
 
 #[macro_use]
 extern crate clap;
@@ -12,11 +13,13 @@ fn main() {
         (about: "Send HTTP Get requests to a URL.")
         (@arg url: --url +takes_value +required "URL to send requests to")
         (@arg profile: --profile +takes_value "Number of requests to send")
+        (@arg delay: --delay +takes_value "Amount of delay between requests when profiling (ms)")
     ).get_matches();
 
     let (host, path) = parse_url(&matches.value_of("url").unwrap());
     let is_profiling = matches.value_of("profile").is_some();
     let profile = matches.value_of("profile").unwrap_or("1").parse::<usize>().unwrap();
+    let delay = Duration::from_millis(matches.value_of("delay").unwrap_or("100").parse::<usize>().unwrap() as u64);
 
     if profile == 0 {
         panic!("Profile count needs to be greater than 0!");
@@ -42,6 +45,10 @@ fn main() {
         stat_times.push(time);
         stat_sizes.push(size);
         stat_succeeded += if succeeded { 1 } else { 0 };
+
+        if profile > 1 {
+            thread::sleep(delay); // use a delay to avoid overloading the server
+        }
     }
 
     // output final statistics when profiling
